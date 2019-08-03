@@ -15,17 +15,17 @@ RUN npm install -g yarn
 
 ARG DEV_USER
 ARG DEV_USER_ID
-RUN useradd -u $DEV_USER_ID -m -r $DEV_USER && \
-  echo "$DEV_USER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers
-USER $DEV_USER
+#RUN useradd -u $DEV_USER_ID -m -r $DEV_USER && \
+#  echo "$DEV_USER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers
+#USER $DEV_USER
 
 # rbenv
 RUN git clone https://github.com/rbenv/rbenv.git ~/.rbenv
 RUN cd ~/.rbenv && src/configure && make -C src
 
-ENV TERM xterm
-ENV PATH="/home/$DEV_USER/.rbenv/bin:$PATH"
-ENV RBENV_SHELL=sh
+#ENV TERM xterm
+#ENV PATH="/home/$DEV_USER/.rbenv/bin:$PATH"
+#ENV RBENV_SHELL=sh
 
 # ruby-build
 RUN git clone https://github.com/rbenv/ruby-build.git ~/.rbenv/plugins/ruby-build
