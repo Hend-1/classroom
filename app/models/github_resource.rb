@@ -18,8 +18,4 @@ class GitHubResource < GitHubModel
   def github_attributes
     []
   end
-
-  def local_cached_attributes
-    []
-  end
 end

@@ -3,9 +3,8 @@
 class Group < ApplicationRecord
   include GitHubTeamable
   include Sluggable
-  include StafftoolsSearchable
 
-  define_pg_search(columns: %i[id github_team_id title slug])
+  update_index("group#group") { self }
 
   belongs_to :grouping
 
@@ -17,8 +16,6 @@ class Group < ApplicationRecord
 
   has_many :users, through: :repo_accesses
   has_many :group_invite_statuses, dependent: :destroy
-  has_many :group_assignment_repos
-  has_many :assignment_repos
 
   validates :github_team_id, presence: true
   validates :github_team_id, uniqueness: true

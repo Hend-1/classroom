@@ -2,9 +2,8 @@
 
 class RepoAccess < ApplicationRecord
   include GitHubTeamable
-  include StafftoolsSearchable
 
-  define_pg_search(columns: %i[id github_team_id])
+  update_index("repo_access#repo_access") { self }
 
   belongs_to :user
   belongs_to(:organization, -> { unscope(where: :deleted_at) })
@@ -45,13 +44,12 @@ class RepoAccess < ApplicationRecord
 
   def remove_organization_member
     github_organization = GitHubOrganization.new(organization.github_client, organization.github_id)
-    github_organization.remove_organization_member(user)
+    github_organization.remove_organization_member(user.uid)
   end
 
   def silently_remove_organization_member
     remove_organization_member
-  rescue GitHub::Error
-    true
+    true # Destroy ActiveRecord object even if we fail to delete the repository
   end
 
   def title

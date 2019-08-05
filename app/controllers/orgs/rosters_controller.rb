@@ -1,29 +1,19 @@
 # frozen_string_literal: true
 
-require "google/apis/classroom_v1"
-
 # rubocop:disable Metrics/ClassLength
 module Orgs
   class RostersController < Orgs::Controller
-    before_action :ensure_current_roster, except: %i[
-      new
-      create
-      import_from_google_classroom
-    ]
-    before_action :redirect_if_roster_exists, only: [:new]
-    before_action :ensure_current_roster_entry,       only:   %i[link unlink delete_entry download_roster]
-    before_action :ensure_enough_members_in_roster,   only:   [:delete_entry]
-    before_action :ensure_allowed_to_access_grouping, only:   [:show]
+    before_action :ensure_student_identifier_flipper_is_enabled
+
+    before_action :ensure_current_roster,             except: %i[new create]
+    before_action :ensure_current_roster_entry,       except: %i[show new create remove_organization add_students]
+    before_action :ensure_enough_members_in_roster,   only: [:delete_entry]
+    before_action :ensure_allowed_to_access_grouping, only: [:show]
 
     helper_method :current_roster, :unlinked_users
 
-    depends_on :lti
-    depends_on :google_classroom
-
     # rubocop:disable AbcSize
     def show
-      @google_course_name = current_organization_google_course_name
-
       @roster_entries = current_roster.roster_entries
         .includes(:user)
         .order(:identifier)
@@ -46,19 +36,15 @@ module Orgs
     def create
       result = Roster::Creator.perform(
         organization: current_organization,
-        identifiers: params[:identifiers],
-        idenifier_name: params[:identifier_name],
-        google_user_ids: params[:google_user_ids]
+        identifier_name: params[:identifier_name],
+        identifiers: params[:identifiers]
       )
 
       # Set the object so that we can see errors when rendering :new
       @roster = result.roster
+
       if result.success?
-        if current_organization.google_course_id && !params[:google_user_ids].empty?
-          GitHubClassroom.statsd.increment("google_classroom.import")
-        else
-          GitHubClassroom.statsd.increment("roster.create")
-        end
+        GitHubClassroom.statsd.increment("roster.create")
 
         flash[:success] = \
           "Your classroom roster has been saved! Manage it <a href='#{roster_url(current_organization)}'>here</a>."
@@ -79,7 +65,7 @@ module Orgs
 
       flash[:success] = "Roster successfully deleted!"
     rescue ActiveRecord::RecordInvalid
-      flash[:error] = "An error has occurred while trying to delete the roster. Please try again."
+      flash[:error] = "An error has occured while trying to delete the roster. Please try again."
     ensure
       redirect_to organization_path(current_organization)
     end
@@ -90,11 +76,11 @@ module Orgs
       user_id = params[:user_id].to_i
       raise ActiveRecord::ActiveRecordError unless unlinked_user_ids.include?(user_id)
 
-      current_roster_entry.update(user_id: user_id)
+      current_roster_entry.update_attributes!(user_id: user_id)
 
       flash[:success] = "Student and GitHub account linked!"
     rescue ActiveRecord::ActiveRecordError
-      flash[:error] = "An error has occurred, please try again."
+      flash[:error] = "An error has occured, please try again."
     ensure
       redirect_to roster_path(current_organization)
     end
@@ -104,7 +90,7 @@ module Orgs
 
       flash[:success] = "Student and GitHub account unlinked!"
     rescue ActiveRecord::ActiveRecordError
-      flash[:error] = "An error has occurred, please try again."
+      flash[:error] = "An error has occured, please try again."
     ensure
       redirect_to roster_path(current_organization)
     end
@@ -114,7 +100,7 @@ module Orgs
 
       flash[:success] = "Student successfully removed from roster!"
     rescue ActiveRecord::ActiveRecordError
-      flash[:error] = "An error has occurred, please try again."
+      flash[:error] = "An error has occured, please try again."
     ensure
       redirect_to roster_path(current_organization)
     end
@@ -123,14 +109,9 @@ module Orgs
     # rubocop:disable Metrics/AbcSize
     def add_students
       identifiers = params[:identifiers].split("\r\n").reject(&:blank?).uniq
-      google_ids = params[:google_user_ids] || []
 
       begin
-        entries = RosterEntry.create_entries(
-          identifiers: identifiers,
-          roster: current_roster,
-          google_user_ids: google_ids
-        )
+        entries = RosterEntry.create_entries(identifiers: identifiers, roster: current_roster)
 
         if entries.empty?
           flash[:warning] = "No students created."
@@ -140,7 +121,7 @@ module Orgs
           flash[:success] = "Students created. Some duplicates have been omitted."
         end
       rescue RosterEntry::IdentifierCreationError
-        flash[:error] = "An error has occurred. Please try again."
+        flash[:error] = "An error has occured. Please try again."
       end
 
       redirect_to roster_path(current_organization)
@@ -162,7 +143,6 @@ module Orgs
         end
       end
     end
-
     # rubocop:enable Metrics/MethodLength
     # rubocop:enable Metrics/AbcSize
 
@@ -247,22 +227,6 @@ module Orgs
       end
 
       mapping
-    end
-
-    def redirect_if_roster_exists
-      redirect_to roster_url(current_organization) if current_organization.roster.present?
-    end
-
-    # Returns name of the linked google course to current organization (for syncing rosters)
-    def current_organization_google_course_name
-      return unless current_organization.google_course_id
-
-      # Only authorize if we have a Google Classroom linked
-      authorize_google_classroom
-      course = GoogleClassroomCourse.new(@google_classroom_service, current_organization.google_course_id)
-      course&.name
-    rescue Google::Apis::Error
-      nil
     end
   end
 end

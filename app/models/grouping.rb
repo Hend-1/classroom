@@ -2,9 +2,8 @@
 
 class Grouping < ApplicationRecord
   include Sluggable
-  include StafftoolsSearchable
 
-  define_pg_search(columns: %i[id title slug])
+  update_index("grouping#grouping") { self }
 
   has_many :groups, dependent: :destroy
   has_many :users, through: :groups, source: :repo_accesses

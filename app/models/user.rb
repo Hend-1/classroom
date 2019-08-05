@@ -3,9 +3,8 @@
 class User < ApplicationRecord
   include Flippable
   include GraphQLNode
-  include StafftoolsSearchable
 
-  define_pg_search(columns: %i[id uid github_login github_name])
+  update_index("user#user") { self }
 
   has_many :assignment_repos
   has_many :repo_accesses, dependent: :destroy
@@ -49,7 +48,7 @@ class User < ApplicationRecord
   end
 
   def github_user
-    @github_user ||= GitHubUser.new(github_client, uid, classroom_resource: self)
+    @github_user ||= GitHubUser.new(github_client, uid)
   end
 
   def github_client_scopes
@@ -58,6 +57,10 @@ class User < ApplicationRecord
 
   def staff?
     site_admin
+  end
+
+  def owns_all_assignments_for?(organization)
+    organization.all_assignments.map(&:creator_id).include? id
   end
 
   def api_token(exp = 5.minutes.from_now)

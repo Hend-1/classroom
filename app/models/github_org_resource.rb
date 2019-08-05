@@ -19,8 +19,4 @@ class GitHubOrgResource < GitHubModel
   def github_attributes
     []
   end
-
-  def local_cached_attributes
-    []
-  end
 end

@@ -1,6 +1,12 @@
 # GitHub Classroom
 [![Build Status](https://travis-ci.org/education/classroom.svg?branch=master)](https://travis-ci.org/education/classroom) [![Code Climate](https://codeclimate.com/github/education/classroom/badges/gpa.svg)](https://codeclimate.com/github/education/classroom)
 
+
+<a href="https://azuredeploy.net/" target="_blank">
+    <img src="http://azuredeploy.net/deploybutton.png"/>
+</a>
+
+
 ## Table of Contents
 
 - [The workflow you use as a developer, scaled for the needs of students.](#the-workflow-you-use-as-a-developer-scaled-for-the-needs-of-students)
@@ -147,6 +153,129 @@ script/setup
 
 Once that's done the script will kindly remind you to fill out you `.env` file inside the repository, this is the breakdown.
 
+## Deploying Github Classroom on Docker 
+
+#### Known Issues for Windows
+  - Since this project was not previously made for the Windows OS, some filepaths exceeds 260 character limit. To be able to clone the repository. 
+    * Firstly, run the command ```git config --system core.longpaths true```.
+
+  - If this does not fix the long filename issue for you try the following steps
+    * Open the Windows Start menu and type ```regedit.``` Launch the application.
+    - Navigate to HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\FileSystem
+    - Right-click the value “LongPathsEnabled” and select Modify.
+    - Change “Value data” from 0 to 1.
+    - Click OK.
+
+ #### Windows
+  - Clone the repository.
+  - Navigate to the cloned folder
+  - Download Docker Toolbox v18.09.3 from the following link [https://github.com/docker/toolbox/releases]. After the installation process make sure that you execute the Docker Quickstart Terminal or alternatively run the command ```docker-machine start``` from the Powershell.
+  - Make sure that the VM has enough memory to run the container. You can ensure this by connecting to the VM and increasing the memory allocated for it by ```docker-machine ssh```. Afterwards, inside the VM increase the memory by executing ```sudo sysctl -w vm.max_map_count=262144``` 
+  - Fill out the environment variables inside the .env file in the root path of the Github Classroom. You can modify it by entering ```notepad .env```in the PowerShell, .env file will be opened in Notepad for you to fill the details.
+  - Run the command ```docker-compose -f docker-compose-sc.yml up --build```, In order to build the Docker Image and run the containers. (We write a new docker-compose-sc.yml file to implement the dockerization.)
+
+ #### Linux
+
+ #### Mac OS
+  - Clone the repository.
+  - Navigate to the cloned folder
+  - Download Docker Desktop for Mac from the following link [https://hub.docker.com/editions/community/docker-ce-desktop-mac]. After the installation process make sure that you execute the Docker application in your computer. It may take 1-2 mins to start Docker.
+  - Fill out the environment variables inside the .env file in the root path of the Github Classroom. You can modify it by entering ```nano .env```in the terminal.
+  - Run the command ```docker-compose -f docker-compose-sc.yml up --build```, In order to build the Docker Image and run the containners. (We write a new docker-compose-sc.yml file to implement the dockerization.)
+  - The containers will automatically run the setup process, wait until the classroom-rubyrails is listening on localhost:5000.
+
+## AKS Deployment process (Unfinished)
+
+- The main process of the AKS deployment follows the link [https://docs.microsoft.com/en-us/azure/aks/tutorial-kubernetes-prepare-app], We will automate the process after we finish manual deployment.
+- Before the AKS deployment, make sure you have azure CLI, kubernetes CLI, Kompose and Docker installed in your computer.
+
+
+- Get the docker images from the step in UCL Docker Deployment instruction.
+- Create a resourse group ```az group create --name myResourceGroup --location uksouth```
+- Creat an Azure Container Registry inside the resource group ```az acr create --resource-group myResourceGroup --name <acrName> --sku Basic```
+- Login the container registry  ```az acr login --name <acrName>```
+- Get the login server address ```az acr list --resource-group myResourceGroup --query "[].{acrLoginServer:loginServer}" --output table```
+- Tag the classroom-rubyrails image, and we only need to push this image to ACR. ```docker tag classroom-rubyrails <acrLoginServer>/classroom-rubyrails:v1```
+- Push images to registry. ```docker push <acrLoginServer>/classroom-rubyrails:v1```
+- Create a service principle ```az ad sp create-for-rbac --skip-assignment```, remember the appId and password.
+- Configure ACR authentication: ```az acr show --resource-group myResourceGroup --name <acrName> --query "id" --output tsv```, ```az role assignment create --assignee <appId> --scope <acrId> --role acrpull```
+- Create a Kubenetes cluster. ```az aks create \
+    --resource-group myResourceGroup \
+    --name myAKSCluster \
+    --node-count 1 \
+    --service-principal <appId> \
+    --client-secret <password> \
+    --generate-ssh-keys```
+- Coneect to the cluster ```az aks get-credentials --resource-group myResourceGroup --name myAKSCluster```
+- Verify the connection ```kubectl get nodes```
+- Then we will need Kompose to translate the docker-compose file into Kubernetes resources. The main process follows this link [https://www.digitalocean.com/community/tutorials/how-to-migrate-a-docker-compose-workflow-to-kubernetes]. There are several ways to install Kompose: [https://github.com/kubernetes/kompose/blob/master/docs/installation.md#macos].
+- Step 1: Traslate docker-compose file into aks configuration file. ```kompose -f docker-compose-aks.yml convert```(We have created a new docker-compose-aks.yml file to implement the AKS deployment. You can find it in the root path of Github Classroom repo).
+- Step 2: Add the code below the ports and resources fields and above the restartPolicy to the rubyrails-deployment.yaml file that just created:
+```
+apiVersion: extensions/v1beta1
+kind: Deployment
+...
+    spec:
+      containers:
+      ...
+        name: nodejs
+        ports:
+        - containerPort: 8080
+        resources: {}
+      # below
+      initContainers:
+      - name: init-postgres
+        image: busybox
+        command: ['sh', '-c', 'until nc -z db:2345; do echo waiting for postgres; sleep 2; done;']
+      # above
+      restartPolicy: Always
+```
+This code is used for the main application to wait for the postgresql database to complete the initialization process.
+
+Then add the initContainers part in the followinng code to the elasticsearch-deployment.yaml file:
+```
+...
+spec:
+  containers:
+  - image: docker.elastic.co/elasticsearch/elasticsearch:6.3.2
+    name: classroom-elasticsearch
+    ports:
+    - containerPort: 9300
+    - containerPort: 9200
+    resources: {}
+    volumeMounts:
+    - mountPath: /usr/share/elasticsearch/data
+      name: classroommaster-classroom-data-elasticsearch-data
+    - mountPath: /user/share/elasticsearch/logs
+      name: classroommaster-classroom-data-elasticsearch-logs
+  # below
+  initContainers:
+  - name: init-postgresql
+    image: busybox
+    command: ['sysctl', '-w', 'vm.max_map_count=262144']
+  # above
+  restartPolicy: Always
+  volumes:
+...
+```
+This code is used to increase the virtual memory size to fit the elasticsearch requirement.
+
+- Step 3: Modify the rubyrails-service.yaml file, specify LoadBalancer as the Service type:
+```
+apiVersion: v1
+kind: Service
+...
+spec:
+  type: LoadBalancer
+  ports:
+...
+```
+- Step 4: Run the following command to create the objects we've defined in the cluster.
+```kubectl create -f classroommaster-classroom-data-elasticsearch-data-persistentvolumeclaim.yaml,classroommaster-classroom-data-elasticsearch-logs-persistentvolumeclaim.yaml,classroommaster-classroom-data-postgres-data-persistentvolumeclaim.yaml,classroommaster-classroom-data-postgres-logs-persistentvolumeclaim.yaml,classroommaster-classroom-data-redis-data-persistentvolumeclaim.yaml,classroommaster-classroom-data-redis-logs-persistentvolumeclaim.yaml,elasticsearch-deployment.yaml,elasticsearch-service.yaml,memcached-deployment.yaml,memcached-service.yaml,postgresql-deployment.yaml,postgresql-service.yaml,redis-deployment.yaml,redis-service.yaml,rubyrails-deployment.yaml,rubyrails-service.yaml```
+- Step 5: Then you can use ```kubectl get deployment,svc,pods,pvc``` to check the deployment status. (We still stuck on this step)
+
+
+
 ### Development environment variables
 
 These values must be present in your `.env` file (created by `script/setup`).
@@ -157,20 +286,12 @@ ENV Variable | Description |
 `GITHUB_CLIENT_ID`| the GitHub Application Client ID.
 `GITHUB_CLIENT_SECRET`| the GitHub Application Client Secret.
 `NON_STAFF_GITHUB_ADMIN_IDS` | GitHub `user_ids` of users to be granted staff level access.
-`GOOGLE_CLIENT_ID` | the Google Client ID
-`GOOGLE_CLIENT_SECRET` | the Google Client Secret
 
 To obtain your `GitHub Client ID/Secret` you need to [register a new OAuth application](https://github.com/settings/applications/new).
 
 After you register your OAuth application, you should fill in the homepage url with `http://localhost:5000` and the authorization url with `http://localhost:5000/auth/github/callback`.
 
 To obtain your GitHub User ID for the `NON_STAFF_GITHUB_ADMIN_IDS` field, go to `https://api.github.com/users/your_username`
-
-To obtain your `Google Client ID/Secret` you will need to [create a new web application](http://console.developers.google.com). When creating credentials choose `OAuth Client ID`, then fill in the `Authorized JavaScript origins` with `http://localhost:5000` and the `Authorized redirect URIs` with `http://localhost:5000/auth/github/callback`. 
-
-After creating your Google credientials, add the Google Classroom scopes of:
-* `https://www.googleapis.com/auth/classroom.courses.readonly`
-* `https://www.googleapis.com/auth/classroom.rosters.readonly`
 
 ### Testing environment variables
 
@@ -187,12 +308,12 @@ If you are recording new cassettes, you need to make sure all of these values ar
 
 ENV Variable | Description |
 :-------------------|:-----------------|
-`TEST_CLASSROOM_OWNER_GITHUB_ID` | GitHub `user_id` of an organization admin (classroom owner)
-`TEST_CLASSROOM_OWNER_GITHUB_TOKEN` | [OAuth Access Token](https://developer.github.com/apps/building-oauth-apps/authorizing-oauth-apps/#creating-multiple-tokens-for-oauth-apps) for GitHub Classroom on behalf of the test classroom owner
-`TEST_CLASSROOM_STUDENT_GITHUB_ID` | GitHub `user_id` of the student
-`TEST_CLASSROOM_STUDENT_GITHUB_TOKEN` | [OAuth Access Token](https://developer.github.com/apps/building-oauth-apps/authorizing-oauth-apps/#creating-multiple-tokens-for-oauth-apps) for GitHub Classroom on behalf of the test student
-`TEST_CLASSROOM_OWNER_ORGANIZATION_GITHUB_ID` | GitHub ID of classroom organization (preferably one created specifically for testing against)
-`TEST_CLASSROOM_OWNER_ORGANIZATION_GITHUB_LOGIN` | GitHub login of classroom organization (preferably one created specifically for testing against)
+`TEST_CLASSROOM_OWNER_GITHUB_ID` | The GitHub `user_id` of an organization admin.
+`TEST_CLASSROOM_OWNER_GITHUB_TOKEN` | The [Personal Access Token](https://github.com/blog/1509-personal-api-tokens) for the classroom owner
+`TEST_CLASSROOM_STUDENT_GITHUB_ID` | Test OAuth application client ID.
+`TEST_CLASSROOM_STUDENT_GITHUB_TOKEN` | The [Personal Access Token](https://github.com/blog/1509-personal-api-tokens) for the student
+`TEST_CLASSROOM_OWNER_ORGANIZATION_GITHUB_ID` | GitHub ID (preferably one created specifically for testing against).
+`TEST_CLASSROOM_OWNER_ORGANIZATION_GITHUB_LOGIN` | GitHub login (preferably one created specifically for testing against).
 
 To obtain these values you will need:
 
@@ -204,11 +325,11 @@ It is best if you create your own organization for testing purposes, if you have
 
 To obtain the `OWNER_GITHUB_ID` value, you can go to `https://api.github.com/users/organization_owner_username`.
 
-To obtain the `OWNER_GITHUB_TOKEN` value, you will need to log in to Classroom with the owner test account, pull up the Rails console, and copy the `token` field
+To obtain the `OWNER_GITHUB_TOKEN` value, you will need to generate a [personal access token](https://github.com/blog/1509-personal-api-tokens).
 
 To get the `STUDENT_GITHUB_ID` value you will need to create another user account on GitHub and get the ID by going to `https://api.github.com/users/student_username`
 
-To get the `STUDENT_GITHUB_TOKEN` value, you will need to log in to Classroom with the student test account, pull up the Rails console, and copy the `token` field
+To get the `STUDENT_GITHUB_TOKEN` value you will need to generate another [personal access token](https://github.com/blog/1509-personal-api-tokens) for the student account.
 
 To obtain the `OWNER_ORGANIZATION_GITHUB_ID/LOGIN` you can go to `https://api.github.com/orgs/organization_name`.
 
@@ -240,29 +361,26 @@ script/server
 
 Aaand that's it! You should have a working instance of GitHub Classroom located [here](http://localhost:5000)
 
-#### Debugging
-We use [pry-rails](https://github.com/rweng/pry-rails) and [byebug](https://github.com/deivid-rodriguez/byebug) for debugging. But since we use `overmind` in the development environment, debugging via `byebug` or via `binding.pry` requires a few more steps:
-
-* Once you start your server using `script/server`, `overmind` will start tmux processes depending on the `Procfile`.
-* We have two such processes `rails` and `sidekiq` (See `Procfile.dev` for details) that you can control.
-* Once you've added a debugging statement in the code and your request pauses, you can access console in a separate tab/window using the following command:
-  * `overmind connect rails` for debugging in request-response cycle, typically controllers, models, services.
-  * `overmind connect sidekiq` for debugging in background jobs.
-* After you've finished debugging you can close the connection using `Ctrl+b d`.
-
-For more details please visit `overmind` homepage: https://github.com/DarthSim/overmind
-
 ## Deployment
 We strongly encourage you to use [https://classroom.github.com](https://classroom.github.com), but if you would like your own version GitHub Classroom can be easily deployed to Heroku.
 
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy)
 
+Test Azure deployment.
+
+[![Deploy to Azure](http://azuredeploy.net/deploybutton.png)](https://azuredeploy.net/)
+
+
 There are a few environment variables you will need to know in order to get Classroom working on production.
+
+	
 
 ### Production environment variables
 
 ENV Variable | Description |
 :-------------------|:-----------------|
+`AIRBRAKE_PROJECT_ID` | the ID for application in airbrake.io, if set Airbrake will be enabled
+`AIRBRAKE_PROJECT_KEY` | the PROJECT_KEY in airbrake.io, if set Airbrake will be enabled
 `CANONICAL_HOST` | the preferred hostname for the application, if set requests served on other hostnames will be redirected
 `GOOGLE_ANALYTICS_TRACKING_ID` | identifier for Google Analytics in the format `UA-.*`
 `PINGLISH_ENABLED` | Enable the `/_ping` endpoint with relevant health checks

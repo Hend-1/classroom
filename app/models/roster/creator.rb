@@ -30,8 +30,6 @@ class Roster
       end
     end
 
-    DEFAULT_IDENTIFIER_NAME = "Identifiers"
-
     # Public: Create a Roster for an Organiation.
     #
     # organization    - The Organization the Roster will belong to.
@@ -47,14 +45,14 @@ class Roster
     #   )
     #
     # Returns an Roster::Creator::Result.
-    def self.perform(organization:, **options)
-      new(organization: organization, **options).perform
+    def self.perform(organization:, identifier_name:, **options)
+      new(organization: organization, identifier_name: identifier_name, **options).perform
     end
 
-    def initialize(organization:, **options)
+    def initialize(organization:, identifier_name:, **options)
       @organization    = organization
+      @identifier_name = identifier_name
       @options         = options
-      @roster = Roster.new(identifier_name: DEFAULT_IDENTIFIER_NAME)
     end
 
     # Internal: Create create a Roster.
@@ -63,8 +61,8 @@ class Roster
       ensure_organization_does_not_have_roster!
 
       ActiveRecord::Base.transaction do
-        google_ids = @options[:google_user_ids] || []
-        add_identifiers_to_roster(@options[:identifiers], google_ids: google_ids) if @options.key?(:identifiers)
+        @roster = Roster.new(identifier_name: @identifier_name)
+        add_identifiers_to_roster(@options[:identifiers]) if @options.key?(:identifiers)
 
         @roster.save!
         @organization.update_attributes!(roster: @roster)
@@ -74,15 +72,13 @@ class Roster
     rescue Result::Error, ActiveRecord::ActiveRecordError => err
       Result.failed(@roster, err.message)
     end
-    # rubocop:enable Metrics/MethodLength
 
     private
 
-    def add_identifiers_to_roster(raw_identifiers_string, google_ids: [])
+    def add_identifiers_to_roster(raw_identifiers_string)
       identifiers = raw_identifiers_string.split("\r\n").reject(&:blank?).uniq
-
-      identifiers.zip(google_ids).each do |identifier, google_user_id|
-        @roster.roster_entries << RosterEntry.new(identifier: identifier, google_user_id: google_user_id)
+      identifiers.each do |identifier|
+        @roster.roster_entries << RosterEntry.new(identifier: identifier)
       end
     end
 

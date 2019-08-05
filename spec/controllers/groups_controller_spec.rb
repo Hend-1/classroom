@@ -7,15 +7,13 @@ RSpec.describe GroupsController, type: :controller do
   let(:user)          { classroom_teacher }
 
   let(:grouping) { create(:grouping, organization: organization) }
-  let(:github_team_id) { organization.github_organization.create_team(Faker::Team.name).id }
-  let(:group) { create(:group, grouping: grouping, github_team_id: github_team_id) }
+  let(:group)    { create(:group, grouping: grouping, github_team_id: 2_976_595) }
 
   before do
     sign_in_as(user)
   end
 
   after(:each) do
-    organization.github_organization.delete_team(group.github_team_id)
     RepoAccess.destroy_all
   end
 

@@ -5,7 +5,6 @@ class CollabMigration
 
   def initialize(repo_access)
     @repo_access = repo_access
-    @user = repo_access.user
   end
 
   def migrate
@@ -35,7 +34,7 @@ class CollabMigration
   end
 
   def github_user
-    @github_user ||= GitHubUser.new(@user.github_client, @user.uid, classroom_resource: @user)
+    @github_user ||= GitHubUser.new(@repo_access.user.github_client, @repo_access.user.uid)
   end
 
   def organization

@@ -17,5 +17,5 @@ Octokit.middleware = Faraday::RackBuilder.new do |builder|
   builder.use Octokit::Response::RaiseError
 
   builder.request :retry
-  builder.adapter Faraday.default_adapter
+  builder.adapter :typhoeus
 end
